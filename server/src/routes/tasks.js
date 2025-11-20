@@ -1,82 +1,210 @@
+
 const express = require('express');
+const { body, validationResult } = require('express-validator');
 const Task = require('../models/Task');
 const User = require('../models/User');
-const { authMiddleware } = require('../middleware/auth');
-const { taskCreateValidator } = require('../middleware/validators');
+const { authenticate, authorizeTaskAccess } = require('../middleware/auth');
 
 const router = express.Router();
 
-// All routes require auth
-router.use(authMiddleware);
+// All task routes require authentication
+router.use(authenticate);
 
-// GET /tasks
+/**
+ * GET /tasks
+ * Return tasks based on role permissions:
+ * - Students: only their own tasks
+ * - Teachers: tasks they created + tasks of their assigned students
+ */
 router.get('/', async (req, res, next) => {
   try {
     const user = req.user;
+    const { progress } = req.query; // Optional filter by progress
+
+    let query = {};
+
     if (user.role === 'student') {
-      // students see their own tasks
-      const tasks = await Task.find({ userId: user._id }).sort({ createdAt: -1 });
-      return res.json({ success: true, tasks });
-    } else {
-      // teacher: tasks created by teacher OR tasks belonging to assigned students
-      const students = await User.find({ teacherId: user._id }).select('_id');
-      const studentIds = students.map(s => s._id);
-      const tasks = await Task.find({ $or: [{ userId: user._id }, { userId: { $in: studentIds } }] }).sort({ createdAt: -1 });
-      return res.json({ success: true, tasks });
+      // Students can only see their own tasks
+      query.userId = user._id;
+    } else if (user.role === 'teacher') {
+      // Teachers can see:
+      // 1. Tasks they created (userId = teacher._id)
+      // 2. Tasks created by students assigned to them (teacherId = teacher._id)
+      
+      // Find all students assigned to this teacher
+      const assignedStudents = await User.find({ 
+        teacherId: user._id,
+        role: 'student'
+      }).select('_id');
+      
+      const studentIds = assignedStudents.map(s => s._id);
+      
+      // Query: tasks where userId is either the teacher OR one of their students
+      query.$or = [
+        { userId: user._id }, // Tasks created by teacher
+        { userId: { $in: studentIds } } // Tasks created by assigned students
+      ];
     }
-  } catch (err) { next(err); }
+
+    // Optional progress filter
+    if (progress && ['not-started', 'in-progress', 'completed'].includes(progress)) {
+      query.progress = progress;
+    }
+
+    // Fetch tasks with user information
+    const tasks = await Task.find(query)
+      .populate('userId', 'email role')
+      .sort({ createdAt: -1 });
+
+    res.json({
+      success: true,
+      count: tasks.length,
+      tasks
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
-// POST /tasks
-router.post('/', taskCreateValidator, async (req, res, next) => {
+/**
+ * POST /tasks
+ * Create a new task
+ * Authorization: userId must equal JWT user._id (enforced by authorizeTaskAccess)
+ */
+router.post('/', authorizeTaskAccess, [
+  body('title')
+    .trim()
+    .notEmpty()
+    .withMessage('Title is required')
+    .isLength({ max: 200 })
+    .withMessage('Title cannot exceed 200 characters'),
+  body('description')
+    .optional()
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage('Description cannot exceed 1000 characters'),
+  body('dueDate')
+    .optional()
+    .isISO8601()
+    .withMessage('Due date must be a valid date'),
+  body('progress')
+    .optional()
+    .isIn(['not-started', 'in-progress', 'completed'])
+    .withMessage('Progress must be one of: not-started, in-progress, completed')
+], async (req, res, next) => {
   try {
-    const user = req.user;
-    const { userId, title, description, dueDate } = req.body;
-
-    // created task userId must match logged-in user id
-    if (String(user._id) !== String(userId)) {
-      return res.status(403).json({ success: false, message: 'userId must match authenticated user' });
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: errors.array().map(e => e.msg).join(', ')
+      });
     }
 
-    const task = await Task.create({ userId, title, description, dueDate });
-    res.json({ success: true, task });
-  } catch (err) { next(err); }
+    const { title, description, dueDate, progress } = req.body;
+
+    // Create task (userId is set by authorizeTaskAccess middleware)
+    const task = await Task.create({
+      userId: req.user._id,
+      title,
+      description: description || '',
+      dueDate: dueDate || null,
+      progress: progress || 'not-started'
+    });
+
+    // Populate user info
+    await task.populate('userId', 'email role');
+
+    res.status(201).json({
+      success: true,
+      message: 'Task created successfully.',
+      task
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
-// PUT /tasks/:id
-router.put('/:id', async (req, res, next) => {
+/**
+ * PUT /tasks/:id
+ * Update a task
+ * Authorization: Only task owner can update (enforced by authorizeTaskAccess)
+ */
+router.put('/:id', authorizeTaskAccess, [
+  body('title')
+    .optional()
+    .trim()
+    .notEmpty()
+    .withMessage('Title cannot be empty')
+    .isLength({ max: 200 })
+    .withMessage('Title cannot exceed 200 characters'),
+  body('description')
+    .optional()
+    .trim()
+    .isLength({ max: 1000 })
+    .withMessage('Description cannot exceed 1000 characters'),
+  body('dueDate')
+    .optional()
+    .isISO8601()
+    .withMessage('Due date must be a valid date'),
+  body('progress')
+    .optional()
+    .isIn(['not-started', 'in-progress', 'completed'])
+    .withMessage('Progress must be one of: not-started, in-progress, completed')
+], async (req, res, next) => {
   try {
-    const user = req.user;
-    const task = await Task.findById(req.params.id);
-    if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
-
-    // Authorization: Only owner can update
-    if (String(task.userId) !== String(user._id)) {
-      return res.status(403).json({ success: false, message: 'Not allowed to update this task' });
+    // Check validation errors
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        message: errors.array().map(e => e.msg).join(', ')
+      });
     }
 
-    const allowed = ['title','description','progress','dueDate'];
-    allowed.forEach(k => { if (k in req.body) task[k] = req.body[k]; });
+    const task = req.task; // Set by authorizeTaskAccess middleware
+    const { title, description, dueDate, progress } = req.body;
+
+    // Update fields if provided
+    if (title !== undefined) task.title = title;
+    if (description !== undefined) task.description = description;
+    if (dueDate !== undefined) task.dueDate = dueDate;
+    if (progress !== undefined) task.progress = progress;
+
     await task.save();
-    res.json({ success: true, task });
-  } catch (err) { next(err); }
+
+    // Populate user info
+    await task.populate('userId', 'email role');
+
+    res.json({
+      success: true,
+      message: 'Task updated successfully.',
+      task
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
-// DELETE /tasks/:id
-router.delete('/:id', async (req, res, next) => {
+/**
+ * DELETE /tasks/:id
+ * Delete a task
+ * Authorization: Only task owner can delete (enforced by authorizeTaskAccess)
+ */
+router.delete('/:id', authorizeTaskAccess, async (req, res, next) => {
   try {
-    const user = req.user;
-    const task = await Task.findById(req.params.id);
-    if (!task) return res.status(404).json({ success: false, message: 'Task not found' });
+    const task = req.task; // Set by authorizeTaskAccess middleware
 
-    // Authorization: Only owner can delete
-    if (String(task.userId) !== String(user._id)) {
-      return res.status(403).json({ success: false, message: 'Not allowed to delete this task' });
-    }
+    await Task.findByIdAndDelete(task._id);
 
-    await task.remove();
-    res.json({ success: true, message: 'Task deleted' });
-  } catch (err) { next(err); }
+    res.json({
+      success: true,
+      message: 'Task deleted successfully.'
+    });
+  } catch (error) {
+    next(error);
+  }
 });
 
 module.exports = router;

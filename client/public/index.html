@@ -3,9 +3,67 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta name="theme-color" content="#0a74da" />
+    <meta name="author" content="EdTech Team" />
+    <meta
+      name="description"
+      content="EdTech Task Manager — Simple role-based task management for teachers & students."
+    />
     <title>EdTech Task Manager</title>
+
+    <!-- Basic meta for social preview (optional but professional) -->
+    <meta property="og:title" content="EdTech Task Manager" />
+    <meta property="og:description" content="Create, assign and track learning tasks with role-based access." />
+    <meta property="og:type" content="website" />
+    <!-- Tailwind CDN for quick dev/demo only -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@3.4.18/dist/tailwind.min.css" rel="stylesheet">
+    <!-- Minimal styles so the static page looks tidy if someone opens it directly -->
+    <style>
+      html,body { height:100%; margin:0; font-family:Inter, system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial; background:#f6f9fc; color:#0f1724; }
+      .app-shell { min-height:100%; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:18px; padding:32px; box-sizing:border-box; }
+      .brand { display:flex; gap:12px; align-items:center; }
+      .logo { width:56px; height:56px; border-radius:10px; background:linear-gradient(135deg,#0a74da,#00b4ff); display:inline-block; box-shadow:0 6px 18px rgba(10,116,218,.16); }
+      h1 { font-size:20px; margin:0; letter-spacing:0.2px; }
+      p { margin:0; opacity:.85; max-width:640px; text-align:center; }
+      .cta { margin-top:12px; }
+      .btn { background:#0a74da; color:#fff; border:none; padding:10px 16px; border-radius:8px; cursor:pointer; font-weight:600; }
+      .foot { margin-top:24px; font-size:13px; color:#6b7280; }
+      @media (min-width:720px){ h1 { font-size:24px } }
+    </style>
   </head>
+
   <body>
-    <div id="root"></div>
+    <noscript>
+      JavaScript is required to run the full application. Please enable it in your browser.
+    </noscript>
+
+    <div id="root" class="app-shell" aria-live="polite">
+      <div class="brand" role="img" aria-label="EdTech logo">
+        <span class="logo" aria-hidden="true"></span>
+        <div>
+          <h1>EdTech Task Manager</h1>
+          <p>Lightweight role-based system for teachers and students — create, assign and submit learning tasks.</p>
+        </div>
+      </div>
+
+      <!-- If React is mounted this placeholder will be replaced by the SPA -->
+      <div class="cta" aria-hidden="false">
+        <button class="btn" onclick="document.getElementById('root').focus()">Open app</button>
+      </div>
+
+      <div class="foot">Built with React • Node • Express • MongoDB</div>
+    </div>
+
+    <!-- App entry: your React bundle will mount into #root -->
+    <script>
+      // Small helper so the static preview looks interactive when opened locally.
+      // (React will replace #root when the app runs.)
+      document.addEventListener('click', function (e) {
+        if (e.target.classList && e.target.classList.contains('btn')) {
+          alert('Run `yarn start` (client) & `npm start` (server) to launch the app.');
+        }
+      }, { once: true });
+    </script>
   </body>
 </html>
