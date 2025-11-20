@@ -1,10 +1,31 @@
+// server/src/routes/users.js
 const express = require('express');
 const User = require('../models/User');
 const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
-// All user routes require authentication
+/**
+ * Public: GET /api/users/teachers
+ * Return list of teachers (id + email) for signup dropdown
+ * This route is intentionally public so signup page can fetch teachers without auth.
+ */
+router.get('/teachers', async (req, res, next) => {
+  try {
+    const teachers = await User.find({ role: 'teacher' })
+      .select('_id email')
+      .sort({ email: 1 });
+
+    res.json({
+      success: true,
+      teachers
+    });
+  } catch (error) {
+    next(error);
+  }
+});
+
+// All routes below this line require authentication
 router.use(authenticate);
 
 /**
